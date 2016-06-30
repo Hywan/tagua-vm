@@ -171,10 +171,11 @@ fn string_single_quoted(input: &[u8]) -> IResult<&[u8], String> {
         } else {
             return string_single_quoted(&input[1..]);
         }
-    } else if input[0] != '\'' as u8 {
+    } else if input[0] != '\'' as u8 && input[0] != '"' as u8 {
         return IResult::Error(Err::Code(ErrorKind::Custom(StringError::InvalidOpeningCharacter as u32)));
     }
 
+    let quote        = input[0];
     let mut output   = String::new();
     let mut offset   = 1;
     let mut iterator = input[offset..].iter().enumerate();
@@ -182,7 +183,7 @@ fn string_single_quoted(input: &[u8]) -> IResult<&[u8], String> {
     while let Some((index, item)) = iterator.next() {
         if *item == '\\' as u8 {
             if let Some((next_index, next_item)) = iterator.next() {
-                if *next_item == '\'' as u8 ||
+                if *next_item == quote ||
                    *next_item == '\\' as u8 {
                     match str::from_utf8(&input[offset..index + 1]) {
                         Ok(output_tail) => {
@@ -198,7 +199,7 @@ fn string_single_quoted(input: &[u8]) -> IResult<&[u8], String> {
             } else {
                 return IResult::Error(Err::Code(ErrorKind::Custom(StringError::InvalidClosingCharacter as u32)));
             }
-        } else if *item == '\'' as u8 {
+        } else if *item == quote {
             match str::from_utf8(&input[offset..index + 1]) {
                 Ok(output_tail) => {
                     output.push_str(output_tail);
@@ -459,6 +460,21 @@ mod tests {
     }
 
     #[test]
+    fn case_string_double_quoted() {
+        assert_eq!(string(b"\"foobar\""), Done(&b""[..], String::from("foobar")));
+    }
+
+    #[test]
+    fn case_string_double_quoted_single_quite() {
+        assert_eq!(string(b"\"foo'bar\""), Done(&b""[..], String::from("foo'bar")));
+    }
+
+    #[test]
+    fn case_string_double_quoted_escaped_quote() {
+        assert_eq!(string(b"\"foo\\\"bar\""), Done(&b""[..], String::from("foo\"bar")));
+    }
+
+    #[test]
     fn case_string_single_quoted_escaped_quote() {
         let input  = b"'foo\\'bar'";
         let output = Done(&b""[..], String::from("foo'bar"));
@@ -530,6 +546,11 @@ mod tests {
     }
 
     #[test]
+    fn case_invalid_string_double_quoted_too_short() {
+        assert_eq!(string(b"\""), Error(Err::Code(ErrorKind::Custom(StringError::TooShort as u32))));
+    }
+
+    #[test]
     fn case_invalid_string_single_quoted_opening_character() {
         let input = b"foobar'";
 
@@ -543,6 +564,11 @@ mod tests {
 
         assert_eq!(string_single_quoted(input), Error(Err::Code(ErrorKind::Custom(StringError::InvalidClosingCharacter as u32))));
         assert_eq!(string(input), Error(Err::Position(ErrorKind::Alt, &input[..])));
+    }
+
+    #[test]
+    fn case_invalid_string_double_quoted_closing_character() {
+        assert_eq!(string(b"\"foobar'"), Error(Err::Code(ErrorKind::Custom(StringError::InvalidClosingCharacter as u32))));
     }
 
     #[test]
